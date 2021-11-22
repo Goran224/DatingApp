@@ -3,6 +3,7 @@ using API.Entities;
 using API.Extensions;
 using API.Middleware;
 using API.Services;
+using API.SignalR;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -40,6 +41,8 @@ namespace API
             services.AddApplicationServices(_config);
             services.AddScoped<ITokenService, TokenService>();
             services.AddControllers();
+            services.AddSignalR();
+            services.AddSingleton<PresenceTracker>();
             services.AddSwaggerGen(c =>
             {
                
@@ -72,6 +75,21 @@ namespace API
                          ValidateIssuer = false,
                          ValidateAudience = false,
                      };
+
+                     options.Events = new JwtBearerEvents
+                     {
+                         OnMessageReceived = context =>
+                         {
+                             var accessToken = context.Request.Query["access_token"];
+                             var path = context.HttpContext.Request.Path;
+                             if (!string.IsNullOrEmpty(accessToken) && 
+                             path.StartsWithSegments("/hubs"))
+                             {
+                                 context.Token = accessToken;
+                             }
+                             return Task.CompletedTask;
+                         }
+                     };
                  });
             services.AddAuthorization(opt =>
             {
@@ -86,7 +104,9 @@ namespace API
             app.UseMiddleware<ExceptionMiddleware>();
             app.UseCors(options =>
              options.WithOrigins("https://localhost:4200")
-             .AllowAnyMethod().AllowAnyHeader());
+             .AllowAnyMethod().
+             AllowCredentials().
+             AllowAnyHeader());
             if (env.IsDevelopment())
             {
                 
@@ -106,6 +126,8 @@ namespace API
             app.UseEndpoints(endpoints =>
             {
                 endpoints.MapControllers();
+                endpoints.MapHub<PresenceHub>("hubs/presence");
+                endpoints.MapHub<MessageHub>("hubs/message");
             });
         }
     }
